@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Defensor ESP32</title>
+  <style>
+    body { margin: 0; padding: 24px; background: #0b1220; color: #e5edf9; font-family: Arial, sans-serif; }
+    h1 { margin: 0; } #conexion { color: #fbbf24; } .ok { color: #4ade80 !important; }
+    .stats { display: flex; gap: 12px; margin: 22px 0; flex-wrap: wrap; }
+    .stat, article { background: #162136; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+    .stat { min-width: 120px; } .numero { display: block; font-size: 28px; margin-top: 4px; }
+    #lista { display: grid; gap: 12px; } article p { white-space: pre-wrap; color: #cbd5e1; }
+    .nivel { display: inline-block; padding: 5px 9px; border-radius: 20px; font-weight: bold; background: #334155; }
+    .ALTO { background: #9a3412; } .CRITICO, .ERROR { background: #991b1b; } .MEDIO { background: #854d0e; } .BAJO { background: #14532d; }
+    small { color: #aab8ce; }
+  </style>
+</head>
+<body>
+  <div id="conexion">Conectando...</div>
+  <h1>Defensor ESP32</h1>
+  <p>Eventos Wi-Fi recibidos y clasificados por IA.</p>
+  <section class="stats"><div class="stat">Total <span class="numero" id="total">0</span></div><div class="stat">Críticos <span class="numero" id="criticos">0</span></div><div class="stat">Pendientes <span class="numero" id="pendientes">0</span></div></section>
+  <main id="lista"><p>Buscando eventos...</p></main>
+  <script>
+    const lista = document.getElementById('lista');
+    const total = document.getElementById('total');
+    const criticos = document.getElementById('criticos');
+    const pendientes = document.getElementById('pendientes');
+    const conexion = document.getElementById('conexion');
+    const escapar = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char]);
+    function mostrar(eventos) {
+      total.textContent = eventos.length;
+      criticos.textContent = eventos.filter(e => e.nivel === 'CRITICO').length;
+      pendientes.textContent = eventos.filter(e => e.estado === 'pendiente').length;
+      lista.innerHTML = eventos.length ? eventos.map(e => {
+        const dato = e.evento;
+        const texto = e.estado === 'pendiente' ? 'Analizando...' : (e.analisis || e.detalle_error || 'Sin resultado');
+        return `<article><span class="nivel ${escapar(e.nivel)}">${escapar(e.nivel)}</span> <b>${escapar(dato.tipo)}</b><br><small>${new Date(e.recibido_en).toLocaleString()} | ${escapar(dato.mac_origen)} | ${escapar(dato.paquetes_por_segundo)} pps | canal ${escapar(dato.canal)}</small><p>${escapar(texto)}</p></article>`;
+      }).join('') : '<p>Aún no hay eventos.</p>';
+    }
+    async function actualizar() {
+      try {
+        const respuesta = await fetch('/eventos', { cache: 'no-store' });
+        mostrar(await respuesta.json());
+        conexion.textContent = '● Servidor conectado';
+        conexion.className = 'ok';
+      } catch (error) {
+        conexion.textContent = 'No se puede consultar el servidor';
+        conexion.className = '';
+      }
+    }
+    actualizar();
+    setInterval(actualizar, 2000);
+  </script>
+</body>
+</html>
