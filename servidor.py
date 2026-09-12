@@ -19,6 +19,7 @@ from agente_seguridad_esp32 import analizar_evento
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 MAX_EVENTOS = 200
+VENTANA_DUPLICADOS_SEGUNDOS = 8
 MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
 NIVELES = ("CRITICO", "ALTO", "MEDIO", "BAJO")
 
@@ -42,6 +43,7 @@ class Estado:
         self.cola: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.eventos: deque[dict[str, Any]] = deque(maxlen=MAX_EVENTOS)
         self.clientes: set[WebSocket] = set()
+        self.ultimos_eventos: dict[tuple[str, str, str], float] = {}
 
     async def publicar(self, mensaje: dict[str, Any]) -> None:
         for cliente in self.clientes.copy():
@@ -56,6 +58,11 @@ def nivel_desde_respuesta(respuesta: str) -> str:
     for nivel in NIVELES:
         if re.search(rf"\b{nivel}\b", respuesta.upper()): return nivel
     return "SIN_CLASIFICAR"
+
+
+def resumen() -> dict[str, int]:
+    eventos = list(estado.eventos)
+    return {"total": len(eventos), "pendientes": sum(e["estado"] == "pendiente" for e in eventos), "errores": sum(e["estado"] == "error" for e in eventos), "criticos": sum(e["nivel"] == "CRITICO" for e in eventos), "altos": sum(e["nivel"] == "ALTO" for e in eventos)}
 
 async def procesar_eventos() -> None:
     while True:
@@ -87,12 +94,20 @@ def verificar_token(token: str | None) -> None:
 @app.get("/", include_in_schema=False)
 async def dashboard() -> FileResponse: return FileResponse(BASE_DIR / "static" / "dashboard.html", headers={"Cache-Control": "no-store"})
 @app.get("/salud")
-async def salud() -> dict[str, str]: return {"estado": "ok", "hora": ahora()}
+async def salud() -> dict[str, Any]: return {"estado": "ok", "hora": ahora(), "cola": estado.cola.qsize()}
 @app.get("/eventos")
 async def listar_eventos() -> list[dict[str, Any]]: return list(estado.eventos)
+@app.get("/resumen")
+async def obtener_resumen() -> dict[str, int]: return resumen()
 @app.post("/evento", status_code=202)
 async def recibir_evento(evento: EventoEntrada, x_esp32_token: str | None = Header(default=None)) -> dict[str, str]:
     verificar_token(x_esp32_token)
+    firma = (evento.tipo, evento.mac_origen, evento.bssid_objetivo)
+    instante = asyncio.get_running_loop().time()
+    anterior = estado.ultimos_eventos.get(firma)
+    if anterior is not None and instante - anterior < VENTANA_DUPLICADOS_SEGUNDOS:
+        return {"estado": "duplicado_omitido", "id": ""}
+    estado.ultimos_eventos[firma] = instante
     registro = {"id": str(uuid4()), "estado": "pendiente", "nivel": "PENDIENTE", "recibido_en": ahora(), "evento": evento.model_dump()}
     estado.eventos.appendleft(registro)
     await estado.cola.put(registro)

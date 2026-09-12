@@ -12,12 +12,35 @@ El proyecto esta pensado para redes y equipos bajo autorizacion. El boton de
 prueba no transmite tramas Wi-Fi: envia un evento simulado al servidor para
 demostrar el flujo completo sin afectar dispositivos.
 
+## Arquitectura
+
+```text
+ESP32 -> POST /evento -> cola del servidor -> agente IA -> dashboard
+```
+
+El servidor procesa un evento por vez para respetar las cuotas del proveedor de
+IA. Eventos iguales recibidos durante ocho segundos se omiten para evitar
+clasificaciones repetidas y errores por limite de solicitudes.
+
 ## Componentes
 
 - `esp32/esp32_defensor/esp32_defensor.ino`: firmware del ESP32-S3.
 - `servidor.py`: API FastAPI, cola de clasificacion y endpoints del dashboard.
 - `agente_seguridad_esp32.py`: clasificador que usa Groq y Exa.
 - `static/dashboard.html`: dashboard que se actualiza cada dos segundos.
+
+## Dashboard
+
+El panel muestra el estado de conexion, total de eventos, eventos criticos,
+alertas de alto riesgo y elementos pendientes. Incluye un filtro por nivel y
+una tarjeta por evento con origen, BSSID, canal, tasa de paquetes y analisis.
+
+Endpoints utiles:
+
+- `GET /salud`: estado del servidor y longitud de la cola.
+- `GET /eventos`: historial reciente en JSON.
+- `GET /resumen`: contadores que alimentan el dashboard.
+- `POST /evento`: entrada usada por el ESP32.
 
 ## Requisitos
 
@@ -80,7 +103,7 @@ permanece en alto cuando el boton esta suelto y pasa a bajo al presionarlo.
 
 Cada pulsacion envia un evento seguro de prueba con:
 
-- Tipo: `deauth_flood`
+- Tipo: `deauth_flood_simulado`
 - MAC simulada: `DE:AD:BE:EF:00:01`
 - Intensidad: 25 paquetes por segundo
 
